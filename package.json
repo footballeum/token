@@ -1,0 +1,16 @@
+{
+  "name": "footballeum",
+  "version": "1.0.0",
+  "description": "footballeum",
+  "main": "index.js",
+  "dependencies": {
+    "zep": "0.0.3",
+    "zeppelin-solidity": "^1.9.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "test"
+  },
+  "author": "Chris Barber",
+  "license": "ISC"
+}

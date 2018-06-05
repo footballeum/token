@@ -1,0 +1,281 @@
+pragma solidity 0.4.23;
+
+import './Token.sol';
+
+contract CrowdSale is Ownable{
+  using SafeMath for uint256;
+
+  uint256 constant internal MIN_CONTRIBUTION = 1 ether;
+  uint256 constant internal TOKEN_DECIMALS = 10**11;
+  uint256 constant internal ICO_TOKENS = 6380000000*TOKEN_DECIMALS;
+  uint256 constant internal ETH_DECIMALS = 10**18;
+  uint8 constant internal TIERS = 3;
+
+  uint256 public totalTokensSold;
+  uint256 public icoStartTime;
+  uint256 public icoEndTime;
+  uint256 public weiRaised;
+  uint256 public ethPrice;
+  address public holdings;
+  uint256 public softCap;
+  address public owner;
+  uint256 public cap;
+  uint8 public tier; // present so that I can see it, remove once testing is done
+  bool private paused;
+  bool private lock;
+
+  struct Participant {
+    uint256 contrAmount;
+    uint256 remainingWei;
+    bool whitelistStatus;
+  }
+
+  mapping(address => Participant) public participants;
+
+  //The footballeum token already deployed
+  Token public token; 
+
+  struct SaleTier {      
+    uint256 tokensToBeSold;  //amount of tokens to be sold in this SaleTier
+    uint256 tokensSold;      //amount of tokens sold in each SaleTier
+    uint256 bonusPercent;    //percentage of bonus to be given.
+    uint256 tierEnd;         //day tier ends     
+  }
+   
+  mapping(uint8 => SaleTier) saleTier;
+  
+  event LogWithdrawal(address _investor, uint256 _amount);
+  event LogTokensBought(address indexed participant, uint256 indexed amountTkns); 
+
+  modifier icoIsActive() {
+    require(weiRaised < cap && now < icoEndTime && totalTokensSold <= ICO_TOKENS);
+    _;
+  }
+
+  modifier icoHasEnded() {
+    require(weiRaised >= cap || now > icoEndTime || totalTokensSold == ICO_TOKENS);
+    _;
+  }
+
+  modifier activeContract(){
+    require(paused == false);
+    _;
+  }
+
+
+  // @param: _holdings for holding ether
+  // @param: _token token address deployed on the mainnet first
+  // @param: _price of ETH
+
+  constructor(address _holdings, address _token, uint256 _priceEth) 
+    public 
+  {
+    require(_holdings != 0x0);
+    require(_token != 0x0); 
+    require(_priceEth != 0);   
+ 
+    // @dev: CONFIRM WEIRAISED
+    weiRaised = 0;
+    token = Token(_token);    
+    holdings = _holdings;
+
+    // @dev: SET AT TIME OF DEPLOYMENT
+    softCap = 100 ether;
+
+    // @dev: SHOULD BE SAME AS TOKEN OWNER
+    owner = msg.sender; 
+    ethPrice = _priceEth;   // Ethereum price in USD no decimals
+
+    // @dev: CHANGE AT TIME OF DEPLOYMENT
+    cap = 1000 ether;
+
+    saleTier[0].tokensToBeSold = (880000000)*TOKEN_DECIMALS;
+    saleTier[0].bonusPercent = 40;
+
+    saleTier[1].tokensToBeSold = (2750000000)*TOKEN_DECIMALS;
+    saleTier[1].bonusPercent = 25;
+
+    saleTier[2].tokensToBeSold = (2750000000)*TOKEN_DECIMALS;
+    saleTier[2].bonusPercent = 15;
+ }
+
+  // @notice Accepts random Eth being sent, buyToknes rejects if address isn't whitelisted
+  // @notice doesn't allow for owner to send ethereum to the contract in the event
+  // of a refund, refund is done manually by owner
+  function()
+    public
+    payable
+  {
+    buyTokens();
+  }
+
+  function startICO()
+    public
+    onlyOwner
+   {
+    require(!lock);
+    token.transferFrom(owner, address(this), ICO_TOKENS);//transferring 6.38 billion tokens with 11 decimals to the crowdsale contract for distribution
+    icoStartTime = now;
+    icoEndTime = now + 45 days;
+    saleTier[0].tierEnd = icoStartTime + 14 days;
+    saleTier[1].tierEnd = icoStartTime + 29 days;
+    saleTier[2].tierEnd = icoStartTime + 44 days;
+    lock = true;
+   } 
+
+  // @notice buyer calls this function to order to get on the list for approval
+  // buyers must send the ether with their whitelist application
+  // @notice internal function called by the callback function
+  // @param: _buyer is the msg.sender from the callback function //see if it works without
+  // @param: _value is the msg.value from the callback function //see if it works without
+  function buyTokens()
+    internal
+    icoIsActive
+    activeContract
+    
+    returns (bool buySuccess)
+  {
+    
+    Participant storage participant = participants[msg.sender];
+
+    require(ethPrice != 0);
+    require(participant.whitelistStatus);
+    uint256 remainingWei = msg.value.add(participant.remainingWei);
+    require(msg.value.add(participant.remainingWei) >= MIN_CONTRIBUTION);
+    uint256 price = (ETH_DECIMALS.mul(uint256(5)).div(1000)).div(ethPrice); //price is $0.005USD
+    participant.remainingWei = 0;
+    uint256 totalTokensRequested;
+    uint256 tierRemainingTokens;
+    uint256 tknsRequested;
+    /*uint8*/ tier = calculateTier();
+    while(remainingWei >= price && tier != TIERS) {
+      SaleTier storage currentTier = saleTier[tier];
+      tknsRequested = (remainingWei.div(price)).mul(TOKEN_DECIMALS);
+      tierRemainingTokens = currentTier.tokensToBeSold.sub(currentTier.tokensSold);
+      if(tknsRequested >= tierRemainingTokens){
+        tknsRequested -= tierRemainingTokens;
+        totalTokensRequested += tierRemainingTokens;
+        totalTokensRequested += calculateBonusTokens(tierRemainingTokens, tier);
+        currentTier.tokensSold += totalTokensRequested;
+        remainingWei -= ((tierRemainingTokens.mul(price)).div(TOKEN_DECIMALS));
+        tier++;
+      } else{
+        totalTokensRequested += tknsRequested;
+        totalTokensRequested += calculateBonusTokens(tknsRequested, tier);
+        currentTier.tokensSold += totalTokensRequested;
+        remainingWei -= ((tknsRequested.mul(price)).div(TOKEN_DECIMALS));
+      }  
+    }
+    
+    uint256 amount = _value.sub(remainingWei);
+    totalTokensSold += totalTokensRequested; //includes bonus tokens
+    weiRaised += amount;
+    participant.remainingWei += remainingWei;
+    participant.contrAmount += amount;
+    emit LogTokensBought(msg.sender, totalTokensRequested);
+    token.transfer(msg.sender, totalTokensRequested);
+    
+    return true;
+  }
+
+  // @notice interface for founders to add addresses to the whitelist
+  // @param listOfAddresses array of addresses that met the KYC/AML/Accreditation requirements
+  function approveAddressForWhitelist(address[] listOfAddresses) 
+    public 
+    onlyOwner
+    icoIsActive 
+  {
+    for(uint8 i = 0; i < listOfAddresses.length; i++){
+      participants[listOfAddresses[i]].whitelistStatus = true;      
+    }
+  }
+
+  // @notice used to set the price of ETH each day, as the price fluctuates so frequently 
+  // @param: _price is the price of ethereum. _price will exclude decimals round up
+  function setEtherPrice(uint256 _price)
+    external
+    onlyOwner
+    {
+      ethPrice = _price;
+    }
+
+  // @notice pause specific functions of the contract
+  function pauseContract() public onlyOwner {
+    paused = true;
+  }
+
+  // @notice to unpause functions 
+  function unpauseContract() public onlyOwner {
+    paused = false;
+  } 
+
+  function checkContributorStatus()
+    view
+    public
+    returns (bool whiteListed)
+  {
+    return (participants[msg.sender].whitelistStatus);
+  }     
+
+  // @notice owner withdraws ether periodically from the crowdsale contract 
+  function ownerWithdrawal()
+    public
+    onlyOwner
+    returns(bool success)
+  {
+    emit LogWithdrawal(msg.sender, address(this).balance);
+    holdings.transfer(address(this).balance);
+    return(true); 
+  }
+
+  // @notice calculate bonus tokens based on buyer token request
+  // @param: _tokensRequested amount of tokens the buyer can get based on the wei sent 
+  // @param: _tier which bonus tier the buyer has sent the wei
+  function calculateBonusTokens(uint256 _tokensRequested, uint8 _tier)
+    view
+    internal
+    returns (uint256 bonusTokens)
+  {
+    bonusTokens = _tokensRequested.mul(saleTier[_tier].bonusPercent).div(uint256(100)); 
+    return bonusTokens; 
+  }
+
+  // @notice calculates the tier based on end of tier and if there are tokens left in that tier
+  function calculateTier()
+    view
+    internal
+    returns(uint8 _tier)
+    {
+      for(uint8 i = 0; i < TIERS; i++){        
+        if(saleTier[i].tierEnd >= now && saleTier[i].tokensSold < saleTier[i].tokensToBeSold)
+        {
+          // Review: no need store to memory and break, just return i here//see if below works first
+          tier = i;
+          break;
+        }
+      }
+      return tier;
+    }
+
+ 
+  // @notice no ethereum will be held in the crowdsale contract
+  // when refunds become available the amount of Ethererum needed will
+  // be manually transfered back to the crowdsale to be refunded
+  // @notice only the last person that buys tokens if they deposited enough to buy more 
+  // tokens than what is available will be able to use this function
+  function claimRemainingWei()
+    external
+    activeContract
+    icoHasEnded
+    returns (bool success)
+  {
+    Participant storage participant = participants[msg.sender];
+    require(participant.whitelistStatus);
+    require(participant.remainingWei != 0);
+    uint256 sendValue = participant.remainingWei;
+    participant.remainingWei = 0;
+    emit LogWithdrawal(msg.sender, sendValue);
+    msg.sender.transfer(sendValue);
+    return true;
+  }
+}
