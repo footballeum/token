@@ -278,11 +278,11 @@ contract BurnableToken is BasicToken {
 
 contract Token is StandardToken, Ownable, BurnableToken {
     
-    address public crowdsaleContract;
+    address private crowdsaleContract;
     string public constant symbol = "FTBL";
     string public constant name = "Footballeum";
     uint256 public constant decimals = 11;
-    bool public paused;
+    bool private paused;
  
   constructor()
     public

@@ -5,11 +5,10 @@ import './Token.sol';
 contract CrowdSale is Ownable{
   using SafeMath for uint256;
 
-  uint256 constant internal MIN_CONTRIBUTION = 1 ether;
   uint256 constant internal TOKEN_DECIMALS = 10**11;
   uint256 constant internal ICO_TOKENS = 6380000000*TOKEN_DECIMALS;
   uint256 constant internal ETH_DECIMALS = 10**18;
-  uint8 constant internal TIERS = 3;
+  uint8 constant internal TIERS = 4;
 
   uint256 public totalTokensSold;
   uint256 public icoStartTime;
@@ -20,7 +19,6 @@ contract CrowdSale is Ownable{
   uint256 public softCap;
   address public owner;
   uint256 public cap;
-  uint8 public tier; // present so that I can see it, remove once testing is done
   bool private paused;
   bool private lock;
 
@@ -39,6 +37,7 @@ contract CrowdSale is Ownable{
     uint256 tokensToBeSold;  //amount of tokens to be sold in this SaleTier
     uint256 tokensSold;      //amount of tokens sold in each SaleTier
     uint256 bonusPercent;    //percentage of bonus to be given.
+    uint256 minContribution; //minimum amount to contribute by tier   
     uint256 tierEnd;         //day tier ends     
   }
    
@@ -91,12 +90,15 @@ contract CrowdSale is Ownable{
 
     saleTier[0].tokensToBeSold = (880000000)*TOKEN_DECIMALS;
     saleTier[0].bonusPercent = 40;
+    saleTier[0].minContribution = 2 ether;
 
     saleTier[1].tokensToBeSold = (2750000000)*TOKEN_DECIMALS;
-    saleTier[1].bonusPercent = 25;
+    saleTier[1].bonusPercent = 30;
+    saleTier[1].minContribution = 1 ether;
 
     saleTier[2].tokensToBeSold = (2750000000)*TOKEN_DECIMALS;
-    saleTier[2].bonusPercent = 15;
+    saleTier[2].bonusPercent = 20;
+    saleTier[2].minContribution = 0.5 ether;
  }
 
   // @notice Accepts random Eth being sent, buyToknes rejects if address isn't whitelisted
@@ -115,11 +117,11 @@ contract CrowdSale is Ownable{
    {
     require(!lock);
     token.transferFrom(owner, address(this), ICO_TOKENS);//transferring 6.38 billion tokens with 11 decimals to the crowdsale contract for distribution
-    icoStartTime = now;
-    icoEndTime = now + 45 days;
-    saleTier[0].tierEnd = icoStartTime + 14 days;
-    saleTier[1].tierEnd = icoStartTime + 29 days;
-    saleTier[2].tierEnd = icoStartTime + 44 days;
+    icoEndTime = now + 220 days;
+    saleTier[0].tierEnd = now + 48 days;
+    saleTier[1].tierEnd = now + 97 days;
+    saleTier[2].tierEnd = now + 148 days;
+    saleTier[3].tierEnd = now + 219 days;
     lock = true;
    } 
 
@@ -137,17 +139,17 @@ contract CrowdSale is Ownable{
   {
     
     Participant storage participant = participants[msg.sender];
-
+    uint8 tier = calculateTier();
     require(ethPrice != 0);
     require(participant.whitelistStatus);
     uint256 remainingWei = msg.value.add(participant.remainingWei);
-    require(msg.value.add(participant.remainingWei) >= MIN_CONTRIBUTION);
+    require(msg.value.add(participant.remainingWei) >= saleTier[tier].minContribution);
     uint256 price = (ETH_DECIMALS.mul(uint256(5)).div(1000)).div(ethPrice); //price is $0.005USD
     participant.remainingWei = 0;
     uint256 totalTokensRequested;
     uint256 tierRemainingTokens;
     uint256 tknsRequested;
-    /*uint8*/ tier = calculateTier();
+    
     while(remainingWei >= price && tier != TIERS) {
       SaleTier storage currentTier = saleTier[tier];
       tknsRequested = (remainingWei.div(price)).mul(TOKEN_DECIMALS);
@@ -167,7 +169,7 @@ contract CrowdSale is Ownable{
       }  
     }
     
-    uint256 amount = _value.sub(remainingWei);
+    uint256 amount = msg.value.sub(remainingWei);
     totalTokensSold += totalTokensRequested; //includes bonus tokens
     weiRaised += amount;
     participant.remainingWei += remainingWei;
@@ -242,22 +244,47 @@ contract CrowdSale is Ownable{
 
   // @notice calculates the tier based on end of tier and if there are tokens left in that tier
   function calculateTier()
-    view
     internal
     returns(uint8 _tier)
     {
-      for(uint8 i = 0; i < TIERS; i++){        
+      for(uint8 i = 0; i < TIERS; i++){
+        if(saleTier[i].tierEnd < now && saleTier[i].tokensSold < saleTier[i].tokensToBeSold)
+        {
+          uint256 leftOverTokens = saleTier[i].tokensToBeSold - saleTier[i].tokensSold;
+          saleTier[i].tokensToBeSold -= leftOverTokens;
+          saleTier[i+1].tokensToBeSold + leftOverTokens;
+        }
         if(saleTier[i].tierEnd >= now && saleTier[i].tokensSold < saleTier[i].tokensToBeSold)
         {
-          // Review: no need store to memory and break, just return i here//see if below works first
-          tier = i;
+          _tier = i;
           break;
         }
       }
-      return tier;
+      return _tier;
     }
 
- 
+  /// @notice calculate unsold tokens for transfer to holdings to be used at a later date
+  function calculateRemainingTokens()
+    view
+    internal
+    returns (uint256 remainingTokens)
+  {
+    //uint256 remainingTokens;
+    for(uint8 i = 0; i < TIERS; i++){
+      if(saleTier[i].tokensSold < saleTier[i].tokensToBeSold){
+        remainingTokens += saleTier[i].tokensToBeSold.sub(saleTier[i].tokensSold);
+      }
+    }
+    return remainingTokens;
+  }
+
+  function finalizeICO()
+    external
+    onlyOwner
+    icoHasEnded
+  {
+    token.burn(calculateRemainingTokens());
+  }
   // @notice no ethereum will be held in the crowdsale contract
   // when refunds become available the amount of Ethererum needed will
   // be manually transfered back to the crowdsale to be refunded

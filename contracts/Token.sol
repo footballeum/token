@@ -6,11 +6,11 @@ import 'zeppelin-solidity/contracts/token/ERC20/BurnableToken.sol';
 
 contract Token is StandardToken, Ownable, BurnableToken {
     
-    address public crowdsaleContract;
+    address private crowdsaleContract;
     string public constant symbol = "FTBL";
     string public constant name = "Footballeum";
     uint256 public constant decimals = 11;
-    bool public paused;
+    bool private paused;
  
   constructor()
     public
@@ -41,7 +41,7 @@ contract Token is StandardToken, Ownable, BurnableToken {
     public 
     returns (bool) 
     {
-        require (!paused || msg.sender == crowdsaleContract || owner); //doesnt allow transfer until unpaused or crowdsaleContract calls it
+        require (!paused || msg.sender == crowdsaleContract || msg.sender == owner); //doesnt allow transfer until unpaused or crowdsaleContract calls it
         return super.transfer(_to, _value);
     }
 
@@ -49,7 +49,7 @@ contract Token is StandardToken, Ownable, BurnableToken {
     public 
     returns (bool) 
     {
-        require (!paused || msg.sender == crowdsaleContract || owner); //doesnt allow transferFrom until unpaused or crowdsaleContract calls it
+        require (!paused || msg.sender == crowdsaleContract || msg.sender == owner); //doesnt allow transferFrom until unpaused or crowdsaleContract calls it
         return super.transferFrom(_from, _to, _value);
     }
 }
