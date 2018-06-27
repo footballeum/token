@@ -14,7 +14,6 @@ contract CrowdSale is Ownable{
   uint256 public icoStartTime;
   uint256 public icoEndTime;
   uint256 public weiRaised;
-  uint256 public ethPrice;
   address public holdings;
   uint256 public softCap;
   address public owner;
@@ -38,7 +37,8 @@ contract CrowdSale is Ownable{
     uint256 tokensSold;      //amount of tokens sold in each SaleTier
     uint256 bonusPercent;    //percentage of bonus to be given.
     uint256 minContribution; //minimum amount to contribute by tier   
-    uint256 tierEnd;         //day tier ends     
+    uint256 tierEnd;         //day tier ends 
+    uint256 price;           //wei per token    
   }
    
   mapping(uint8 => SaleTier) saleTier;
@@ -66,12 +66,11 @@ contract CrowdSale is Ownable{
   // @param: _token token address deployed on the mainnet first
   // @param: _price of ETH
 
-  constructor(address _holdings, address _token, uint256 _priceEth) 
+  constructor(address _holdings, address _token) 
     public 
   {
     require(_holdings != 0x0);
     require(_token != 0x0); 
-    require(_priceEth != 0);   
  
     // @dev: CONFIRM WEIRAISED
     weiRaised = 0;
@@ -79,14 +78,13 @@ contract CrowdSale is Ownable{
     holdings = _holdings;
 
     // @dev: SET AT TIME OF DEPLOYMENT
-    softCap = 100 ether;
+    softCap = 2000 ether;
 
     // @dev: SHOULD BE SAME AS TOKEN OWNER
     owner = msg.sender; 
-    ethPrice = _priceEth;   // Ethereum price in USD no decimals
 
     // @dev: CHANGE AT TIME OF DEPLOYMENT
-    cap = 1000 ether;
+    cap = 30000 ether;
 
     saleTier[0].tokensToBeSold = (880000000)*TOKEN_DECIMALS;
     saleTier[0].bonusPercent = 40;
@@ -99,6 +97,14 @@ contract CrowdSale is Ownable{
     saleTier[2].tokensToBeSold = (2750000000)*TOKEN_DECIMALS;
     saleTier[2].bonusPercent = 20;
     saleTier[2].minContribution = 0.5 ether;
+
+    saleTier[3].tokensToBeSold = 0;
+    saleTier[3].bonusPercent = 0;
+    saleTier[3].minContribution = 0.5 ether;
+
+    for(uint8 i = 0; i<TIERS; i++){
+      saleTier[i].price = 10000000000000; //wei per token based on $500 USD per ETH 0.005USD per token
+    }
  }
 
   // @notice Accepts random Eth being sent, buyToknes rejects if address isn't whitelisted
@@ -117,11 +123,11 @@ contract CrowdSale is Ownable{
    {
     require(!lock);
     token.transferFrom(owner, address(this), ICO_TOKENS);//transferring 6.38 billion tokens with 11 decimals to the crowdsale contract for distribution
-    icoEndTime = now + 220 days;
-    saleTier[0].tierEnd = now + 48 days;
-    saleTier[1].tierEnd = now + 97 days;
-    saleTier[2].tierEnd = now + 148 days;
-    saleTier[3].tierEnd = now + 219 days;
+    icoEndTime = now + 126 days;
+    saleTier[0].tierEnd = now + 28 days;
+    saleTier[1].tierEnd = now + 56 days;
+    saleTier[2].tierEnd = now + 84 days;
+    saleTier[3].tierEnd = now + 126 days;
     lock = true;
    } 
 
@@ -144,7 +150,7 @@ contract CrowdSale is Ownable{
     require(participant.whitelistStatus);
     uint256 remainingWei = msg.value.add(participant.remainingWei);
     require(msg.value.add(participant.remainingWei) >= saleTier[tier].minContribution);
-    uint256 price = (ETH_DECIMALS.mul(uint256(5)).div(1000)).div(ethPrice); //price is $0.005USD
+    uint256 price = saleTier[tier].price; 
     participant.remainingWei = 0;
     uint256 totalTokensRequested;
     uint256 tierRemainingTokens;
@@ -152,6 +158,7 @@ contract CrowdSale is Ownable{
     
     while(remainingWei >= price && tier != TIERS) {
       SaleTier storage currentTier = saleTier[tier];
+      price = currentTier.price;
       tknsRequested = (remainingWei.div(price)).mul(TOKEN_DECIMALS);
       tierRemainingTokens = currentTier.tokensToBeSold.sub(currentTier.tokensSold);
       if(tknsRequested >= tierRemainingTokens){
@@ -176,7 +183,9 @@ contract CrowdSale is Ownable{
     participant.contrAmount += amount;
     emit LogTokensBought(msg.sender, totalTokensRequested);
     token.transfer(msg.sender, totalTokensRequested);
-    
+    if(weiRaised >= cap || now > icoEndTime || totalTokensSold == ICO_TOKENS){
+      finalizeICO();
+    }
     return true;
   }
 
@@ -191,15 +200,6 @@ contract CrowdSale is Ownable{
       participants[listOfAddresses[i]].whitelistStatus = true;      
     }
   }
-
-  // @notice used to set the price of ETH each day, as the price fluctuates so frequently 
-  // @param: _price is the price of ethereum. _price will exclude decimals round up
-  function setEtherPrice(uint256 _price)
-    external
-    onlyOwner
-    {
-      ethPrice = _price;
-    }
 
   // @notice pause specific functions of the contract
   function pauseContract() public onlyOwner {
@@ -238,7 +238,11 @@ contract CrowdSale is Ownable{
     internal
     returns (uint256 bonusTokens)
   {
-    bonusTokens = _tokensRequested.mul(saleTier[_tier].bonusPercent).div(uint256(100)); 
+    if(saleTier[_tier].bonusPercent > 0){
+      bonusTokens = _tokensRequested.mul(saleTier[_tier].bonusPercent).div(uint256(100));
+    }else{
+      bonusTokens = 0; 
+    } 
     return bonusTokens; 
   }
 
@@ -279,12 +283,11 @@ contract CrowdSale is Ownable{
   }
 
   function finalizeICO()
-    external
-    onlyOwner
-    icoHasEnded
+    internal
   {
     token.burn(calculateRemainingTokens());
   }
+
   // @notice no ethereum will be held in the crowdsale contract
   // when refunds become available the amount of Ethererum needed will
   // be manually transfered back to the crowdsale to be refunded
