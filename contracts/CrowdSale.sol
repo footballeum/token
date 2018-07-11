@@ -191,14 +191,12 @@ contract CrowdSale is Ownable{
 
   // @notice interface for founders to add addresses to the whitelist
   // @param listOfAddresses array of addresses that met the KYC/AML/Accreditation requirements
-  function approveAddressForWhitelist(address[] listOfAddresses) 
+  function approveAddressForWhitelist(address addressToWhitelist) 
     public 
     onlyOwner
     icoIsActive 
   {
-    for(uint8 i = 0; i < listOfAddresses.length; i++){
-      participants[listOfAddresses[i]].whitelistStatus = true;      
-    }
+      participants[addressToWhitelist].whitelistStatus = true;      
   }
 
   // @notice pause specific functions of the contract
