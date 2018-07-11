@@ -146,7 +146,6 @@ contract CrowdSale is Ownable{
     
     Participant storage participant = participants[msg.sender];
     uint8 tier = calculateTier();
-    require(ethPrice != 0);
     require(participant.whitelistStatus);
     uint256 remainingWei = msg.value.add(participant.remainingWei);
     require(msg.value.add(participant.remainingWei) >= saleTier[tier].minContribution);
