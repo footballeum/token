@@ -84,7 +84,7 @@ contract CrowdSale is Ownable{
     owner = msg.sender; 
 
     // @dev: CHANGE AT TIME OF DEPLOYMENT
-    cap = 30000 ether;
+    cap = 60000 ether;
 
     saleTier[0].tokensToBeSold = (880000000)*TOKEN_DECIMALS;
     saleTier[0].bonusPercent = 40;
