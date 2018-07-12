@@ -185,7 +185,7 @@ contract CrowdSale is Ownable{
     if(weiRaised >= cap || now > icoEndTime || totalTokensSold == ICO_TOKENS){
       finalizeICO();
     }
-    return true;
+    return(true);
   }
 
   // @notice interface for founders to add addresses to the whitelist
@@ -197,7 +197,7 @@ contract CrowdSale is Ownable{
     returns(bool whiteListed) 
   {
       participants[addressToWhitelist].whitelistStatus = true;
-      return true;      
+      return(true);      
   }
 
   // @notice pause specific functions of the contract
