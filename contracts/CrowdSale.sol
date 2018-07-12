@@ -193,9 +193,11 @@ contract CrowdSale is Ownable{
   function approveAddressForWhitelist(address addressToWhitelist) 
     public 
     onlyOwner
-    icoIsActive 
+    icoIsActive
+    returns(bool whiteListed) 
   {
-      participants[addressToWhitelist].whitelistStatus = true;      
+      participants[addressToWhitelist].whitelistStatus = true;
+      return true;      
   }
 
   // @notice pause specific functions of the contract
