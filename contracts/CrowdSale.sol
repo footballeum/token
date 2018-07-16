@@ -1,12 +1,12 @@
 pragma solidity 0.4.24;
 
-import './Token.sol';
+import './FootballeumToken.sol';
 
 contract CrowdSale is Ownable{
   using SafeMath for uint256;
 
-  uint256 constant internal TOKEN_DECIMALS = 10**11;
-  uint256 constant internal ICO_TOKENS = 6380000000*TOKEN_DECIMALS;
+  uint256 constant internal TOKEN_DECIMALS = 10**10;
+  uint256 constant internal ICO_TOKENS = 10000000000*TOKEN_DECIMALS;
   uint256 constant internal ETH_DECIMALS = 10**18;
   uint8 constant internal TIERS = 4;
 
@@ -44,7 +44,8 @@ contract CrowdSale is Ownable{
   mapping(uint8 => SaleTier) saleTier;
   
   event LogWithdrawal(address _investor, uint256 _amount);
-  event LogTokensBought(address indexed participant, uint256 indexed amountTkns); 
+  event LogTokensBought(address indexed participant, uint256 indexed amountTkns);
+  event LogWhitelistApproved(address indexed buyer, bool indexed approved);
 
   modifier icoIsActive() {
     require(weiRaised < cap && now < icoEndTime && totalTokensSold <= ICO_TOKENS);
@@ -194,10 +195,9 @@ contract CrowdSale is Ownable{
     public 
     onlyOwner
     icoIsActive
-    returns(bool whiteListed) 
   {
       participants[addressToWhitelist].whitelistStatus = true;
-      return(true);      
+      emit LogWhitelistApproved(addressToWhitelist, participants[addressToWhitelist].whitelistStatus);      
   }
 
   // @notice pause specific functions of the contract
